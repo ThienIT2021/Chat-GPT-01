@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kích hoạt & ChatGPT</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+body { background: linear-gradient(to right, #6a11cb, #2575fc); color: #fff; }
+.container { max-width: 600px; margin-top: 50px; padding: 20px; background: rgba(0,0,0,0.6); border-radius: 15px; }
+#user-panel { background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; margin-top: 20px; }
+#chat-box { height: 300px; overflow-y: auto; border: 1px solid #fff; padding: 10px; margin-bottom: 10px; border-radius: 10px; background: rgba(255,255,255,0.1);}
+.status { font-weight: bold; padding: 2px 6px; border-radius: 5px; }
+.status.inactive { background-color: #ffc107; color: #000; } /* vàng */
+.status.active { background-color: #28a745; color: #fff; }    /* xanh */
+.status.expired { background-color: #dc3545; color: #fff; }   /* đỏ */
+</style>
+</head>
+<body>
+<div class="container text-center">
+    <h2>Kích hoạt Web & ChatGPT Demo</h2>
+
+    <!-- Panel kích hoạt key -->
+    <div id="activation-panel">
+        <p>ID Thiết bị: <span id="device-id"></span> 
+            <button class="btn btn-sm btn-light" id="copy-btn">Copy</button>
+        </p>
+        <input type="text" id="key-input" class="form-control" placeholder="Nhập key kích hoạt">
+        <button class="btn btn-primary w-100 mt-2" id="activate-btn">Kích hoạt</button>
+    </div>
+
+    <!-- Panel user + chat -->
+    <div id="user-panel" style="display:none;">
+        <h3>Xin chào, <span id="username"></span></h3>
+        <p>Trạng thái: <span id="key-status" class="status inactive">Chưa kích hoạt</span></p>
+        <p>Thời hạn còn lại: <span id="remaining"></span></p>
+        <button class="btn btn-danger mb-3" id="logout-btn">Đăng xuất</button>
+
+        <div id="chat-box"></div>
+        <input type="text" id="chat-input" class="form-control" placeholder="Nhập câu hỏi...">
+        <button class="btn btn-success w-100 mt-2" id="send-btn">Gửi</button>
+        <p class="mt-2 text-warning" id="limit-msg"></p>
+    </div>
+</div>
+
+<script>
+// ID thiết bị cố định
+let deviceId = localStorage.getItem("device_id");
+if(!deviceId){
+    deviceId = 'DEV-' + Math.random().toString(36).substring(2,10).toUpperCase();
+    localStorage.setItem("device_id", deviceId);
+}
+document.getElementById("device-id").innerText = deviceId;
+
+// Copy ID
+document.getElementById("copy-btn").onclick = () => {
+    navigator.clipboard.writeText(deviceId);
+    alert("Đã copy ID máy!");
+};
+
+// Demo danh sách key từ admin
+if(!localStorage.getItem("keys")){
+    const demoKeys = [
+        {username:"UserDemo", key:"DEMO1234", duration:1, devices:[deviceId], activated_at:null}
+    ];
+    localStorage.setItem("keys", JSON.stringify(demoKeys));
+}
+
+// Kích hoạt key
+document.getElementById("activate-btn").onclick = () => {
+    const key = document.getElementById("key-input").value.trim();
+    if(!key) return alert("Nhập key!");
+    let keys = JSON.parse(localStorage.getItem("keys") || "[]");
+    let keyData = keys.find(k=>k.key===key);
+    if(!keyData) return alert("Key không tồn tại!");
+    if(!keyData.devices.includes(deviceId)) return alert("Thiết bị chưa được admin thêm vào key!");
+
+    keyData.activated_at = keyData.activated_at || Date.now();
+    localStorage.setItem("keys", JSON.stringify(keys));
+
+    showUserPanel(keyData);
+};
+
+// Hiển thị user panel + chat
+function showUserPanel(keyData){
+    document.getElementById("activation-panel").style.display="none";
+    document.getElementById("user-panel").style.display="block";
+    document.getElementById("username").innerText = keyData.username;
+    startCountdown(keyData);
+}
+
+// Logout
+document.getElementById("logout-btn").onclick = ()=> location.reload();
+
+// Thời hạn đếm ngược + màu trạng thái
+function startCountdown(keyData){
+    const statusEl = document.getElementById("key-status");
+    const remainingEl = document.getElementById("remaining");
+
+    const interval = setInterval(()=>{
+        const now = Date.now();
+
+        if(!keyData.activated_at){
+            statusEl.innerText = "Chưa kích hoạt";
+            statusEl.className = "status inactive";
+            remainingEl.innerText = "0:00:00";
+            return;
+        }
+
+        const endTime = keyData.activated_at + keyData.duration*3600*1000;
+        const diff = endTime - now;
+
+        if(diff <= 0){
+            statusEl.innerText = "Hết hạn";
+            statusEl.className = "status expired";
+            remainingEl.innerText = "0:00:00";
+            clearInterval(interval);
+            alert("Key đã hết hạn!");
+            location.reload();
+            return;
+        }
+
+        statusEl.innerText = "Đang hoạt động";
+        statusEl.className = "status active";
+
+        const hours = Math.floor(diff/3600000);
+        const minutes = Math.floor((diff%3600000)/60000);
+        const seconds = Math.floor((diff%60000)/1000);
+        remainingEl.innerText = `${hours}:${minutes.toString().padStart(2,'0')}:${seconds.toString().padStart(2,'0')}`;
+    }, 1000);
+}
+
+// ChatGPT demo
+document.getElementById("send-btn").onclick = () => {
+    const input = document.getElementById("chat-input");
+    const question = input.value.trim();
+    if(!question) return;
+    appendMessage("Bạn", question);
+    input.value = "";
+
+    // Demo trả lời
+    const demoAnswer = "Đây là câu trả lời demo cho: " + question;
+    setTimeout(()=>appendMessage("GPT", demoAnswer), 500);
+};
+
+// Append message
+function appendMessage(user, text){
+    const chatBox = document.getElementById("chat-box");
+    const p = document.createElement("p");
+    p.innerHTML = `<strong>${user}:</strong> ${text}`;
+    chatBox.appendChild(p);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Panel</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+body { background:#222; color:#fff; }
+.container { margin-top: 30px; }
+.table td, .table th { color:#fff; vertical-align: middle; }
+.status { font-weight: bold; padding: 2px 6px; border-radius: 5px; }
+.status.inactive { background-color: #ffc107; color: #000; } /* vàng */
+.status.active { background-color: #28a745; color: #fff; }    /* xanh */
+.status.expired { background-color: #dc3545; color: #fff; }   /* đỏ */
+.btn-small { padding: 0.2rem 0.5rem; font-size:0.8rem; margin:1px 0; }
+.device-status { display:flex; align-items:center; justify-content:space-between; margin-bottom:2px; }
+</style>
+</head>
+<body>
+<div class="container">
+    <h2>Admin Panel</h2>
+
+    <!-- Đăng nhập admin -->
+    <div id="login-panel">
+        <input type="text" id="admin-user" class="form-control mb-2" placeholder="Admin user">
+        <input type="password" id="admin-pass" class="form-control mb-2" placeholder="Mật khẩu">
+        <button class="btn btn-primary w-100" id="login-btn">Đăng nhập</button>
+    </div>
+
+    <!-- Panel quản lý -->
+    <div id="admin-panel" style="display:none;">
+        <div class="mb-2">
+            <button class="btn btn-danger" id="logout-btn">Đăng xuất</button>
+            <button class="btn btn-warning" id="change-pass-btn">Đổi mật khẩu</button>
+        </div>
+
+        <hr>
+        <h4>Quản lý API ChatGPT</h4>
+        <div class="mb-2">
+            <input type="text" id="chatgpt-api" class="form-control mb-2" placeholder="Nhập API key">
+            <button class="btn btn-success mb-1" id="save-api">Lưu API</button>
+            <button class="btn btn-danger mb-1" id="delete-api">Xóa API</button>
+        </div>
+
+        <hr>
+        <h4>Tạo Key User</h4>
+        <div class="mb-2">
+            <input type="text" id="new-key" class="form-control mb-2" placeholder="Key (để trống để random)">
+            <input type="number" id="duration" class="form-control mb-2" placeholder="Thời hạn (giờ)">
+            <input type="text" id="username" class="form-control mb-2" placeholder="Tên user">
+            <button class="btn btn-success mb-2" id="create-key">Tạo Key</button>
+        </div>
+
+        <hr>
+        <h4>Danh sách Key & Thiết bị</h4>
+        <table class="table table-dark table-striped">
+            <thead>
+                <tr>
+                    <th>Key</th>
+                    <th>User</th>
+                    <th>Thời hạn (giờ)</th>
+                    <th>Thiết bị & Trạng thái</th>
+                    <th>Hành động</th>
+                </tr>
+            </thead>
+            <tbody id="key-list"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+// Khởi tạo admin
+if(!localStorage.getItem("admin_user")) localStorage.setItem("admin_user","admin");
+if(!localStorage.getItem("admin_pass")) localStorage.setItem("admin_pass","123456");
+
+// Khởi tạo key demo
+if(!localStorage.getItem("keys")) localStorage.setItem("keys", JSON.stringify([]));
+
+// Đăng nhập admin
+document.getElementById("login-btn").onclick = () => {
+    const user = document.getElementById("admin-user").value.trim();
+    const pass = document.getElementById("admin-pass").value.trim();
+    if(user===localStorage.getItem("admin_user") && pass===localStorage.getItem("admin_pass")){
+        document.getElementById("login-panel").style.display="none";
+        document.getElementById("admin-panel").style.display="block";
+        renderKeys();
+    } else alert("Sai user hoặc mật khẩu!");
+};
+
+// Đăng xuất
+document.getElementById("logout-btn").onclick = () => location.reload();
+
+// Đổi mật khẩu
+document.getElementById("change-pass-btn").onclick = () => {
+    const newPass = prompt("Nhập mật khẩu mới:");
+    if(newPass) localStorage.setItem("admin_pass", newPass);
+};
+
+// API ChatGPT
+document.getElementById("save-api").onclick = () => {
+    const api = document.getElementById("chatgpt-api").value.trim();
+    localStorage.setItem("chatgpt_api", api);
+    alert("Đã lưu API ChatGPT");
+};
+document.getElementById("delete-api").onclick = () => {
+    localStorage.removeItem("chatgpt_api");
+    document.getElementById("chatgpt-api").value="";
+    alert("Đã xóa API");
+};
+
+// Tạo key user
+document.getElementById("create-key").onclick = () => {
+    const keys = JSON.parse(localStorage.getItem("keys"));
+    let key = document.getElementById("new-key").value.trim();
+    const duration = parseInt(document.getElementById("duration").value) || 1;
+    const username = document.getElementById("username").value.trim() || "UserDemo";
+
+    if(!key) key = 'KEY-' + Math.random().toString(36).substring(2,8).toUpperCase();
+
+    keys.push({key, username, duration, devices:[], activated_at:null});
+    localStorage.setItem("keys", JSON.stringify(keys));
+    document.getElementById("new-key").value="";
+    document.getElementById("duration").value="";
+    document.getElementById("username").value="";
+    renderKeys();
+}
+
+// Render danh sách key
+function renderKeys(){
+    const keys = JSON.parse(localStorage.getItem("keys"));
+    const tbody = document.getElementById("key-list");
+    tbody.innerHTML="";
+    const now = Date.now();
+
+    keys.forEach((k)=>{
+        // Thiết bị + trạng thái riêng + nút copy thiết bị
+        let devicesHtml = "";
+        if(k.devices.length>0){
+            k.devices.forEach((deviceId,i)=>{
+                let statusText="Chưa kích hoạt";
+                let statusClass="status inactive";
+                if(k.activated_at){
+                    const endTime = k.activated_at + k.duration*3600*1000;
+                    if(now >= endTime){
+                        statusText="Hết hạn";
+                        statusClass="status expired";
+                    } else {
+                        statusText="Đang hoạt động";
+                        statusClass="status active";
+                    }
+                }
+                devicesHtml += `
+                <div class="device-status">
+                    <span>${deviceId}</span>
+                    <span class="${statusClass}">${statusText}</span>
+                    <button class="btn btn-sm btn-info btn-small" onclick="copyDeviceKey('${k.key}','${deviceId}')">Copy</button>
+                    <button class="btn btn-sm btn-danger btn-small btn-remove-device" data-key="${k.key}" data-index="${i}">Xóa</button>
+                </div>`;
+            });
+        } else {
+            devicesHtml="(Chưa có thiết bị)";
+        }
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td>${k.key}</td>
+            <td>${k.username}</td>
+            <td>${k.duration}</td>
+            <td>${devicesHtml}</td>
+            <td>
+                <button class="btn btn-sm btn-warning btn-small" onclick="addDevice('${k.key}')">Thêm thiết bị</button>
+                <button class="btn btn-sm btn-info btn-small" onclick="copyKey('${k.key}')">Copy key</button>
+                <button class="btn btn-sm btn-danger btn-small" onclick="deleteKey('${k.key}')">Xóa key</button>
+                <button class="btn btn-sm btn-secondary btn-small" onclick="resetKey('${k.key}')">Reset key</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    // Xóa thiết bị
+    document.querySelectorAll(".btn-remove-device").forEach(btn=>{
+        btn.onclick = () => {
+            const keyVal = btn.dataset.key;
+            const idx = parseInt(btn.dataset.index);
+            let keys = JSON.parse(localStorage.getItem("keys"));
+            const keyData = keys.find(k=>k.key===keyVal);
+            if(keyData){
+                keyData.devices.splice(idx,1);
+                localStorage.setItem("keys", JSON.stringify(keys));
+                renderKeys();
+            }
+        }
+    });
+}
+
+// Thêm thiết bị
+function addDevice(keyVal){
+    const deviceId = prompt("Nhập ID thiết bị mới:");
+    if(!deviceId) return;
+    let keys = JSON.parse(localStorage.getItem("keys"));
+    const keyData = keys.find(k=>k.key===keyVal);
+    if(keyData && !keyData.devices.includes(deviceId)){
+        keyData.devices.push(deviceId);
+        localStorage.setItem("keys", JSON.stringify(keys));
+        renderKeys();
+    } else alert("Thiết bị đã tồn tại hoặc key không hợp lệ!");
+}
+
+// Xóa key
+function deleteKey(keyVal){
+    if(!confirm("Xóa key này?")) return;
+    let keys = JSON.parse(localStorage.getItem("keys"));
+    keys = keys.filter(k=>k.key!==keyVal);
+    localStorage.setItem("keys", JSON.stringify(keys));
+    renderKeys();
+}
+
+// Reset key
+function resetKey(keyVal){
+    let keys = JSON.parse(localStorage.getItem("keys"));
+    const keyData = keys.find(k=>k.key===keyVal);
+    if(keyData){
+        keyData.activated_at=null;
+        keyData.devices=[];
+        localStorage.setItem("keys", JSON.stringify(keys));
+        renderKeys();
+        alert("Đã reset key");
+    }
+}
+
+// Copy key toàn bộ
+function copyKey(key){
+    navigator.clipboard.writeText(key).then(()=>{
+        alert("Đã copy key: " + key);
+    }).catch(err=>{
+        alert("Copy key thất bại: " + err);
+    });
+}
+
+// Copy key + ID thiết bị
+function copyDeviceKey(key, deviceId){
+    const text = `${key} | Device: ${deviceId}`;
+    navigator.clipboard.writeText(text).then(()=>{
+        alert("Đã copy: " + text);
+    }).catch(err=>{
+        alert("Copy thất bại: " + err);
+    });
+}
+
+// Render lần đầu + cập nhật tự động
+renderKeys();
+setInterval(renderKeys,5000);
+</script>
+</body>
+</html>
